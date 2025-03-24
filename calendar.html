@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trinity Presbyterian Church Prayer Calendar</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        #calendar-container { display: flex; justify-content: center; margin-top: 20px; }
+        #sidebar { width: 250px; padding: 10px; border: 1px solid #ccc; text-align: left; }
+        #calendar { 
+            width: 700px; 
+            border-collapse: collapse; 
+            table-layout: fixed; 
+        }
+        #calendar th, #calendar td { 
+            border: 1px solid #000; 
+            padding: 5px; 
+            text-align: center; 
+            vertical-align: top; 
+            width: 100px;  /* Fixed width */
+            height: 100px; /* Fixed height */
+            overflow: hidden;
+        }
+        #calendar th { 
+            background-color: #ddd; 
+            height: 30px;  /* Fixed height for header */
+            line-height: 30px;  /* Ensure text is centered vertically */
+            padding: 0;  /* Remove extra padding */
+        }
+        .day-content { 
+            font-size: 0.8em; 
+            text-align: left; 
+            height: 80px; 
+            overflow-y: auto; 
+        }
+        .day-number { font-weight: bold; }
+        
+        /* New styles for header */
+        #print-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        #print-header img {
+            width: 100px; /* Fixed width */
+            height: 100px; /* Fixed height */
+            object-fit: contain; /* Maintain aspect ratio */
+            margin: 0 20px;
+        }
+        #print-header-text {
+            display: flex;
+            flex-direction: column;
+        }
+        #print-header-text h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        #print-header-text h2 {
+            margin: 5px 0 0;
+            font-size: 18px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div id="print-header">
+        <img src="image.png" alt="Church Logo">
+        <div id="print-header-text">
+            <h1>Trinity Presbyterian Church</h1>
+            <h2 id="calendar-title">Prayer Calendar</h2>
+        </div>
+        <img src="image.png" alt="Church Logo">
+    </div>
+
+    <h1 style="display:none;">Monthly Prayer Calendar</h1>
+    <label for="month">Month:</label>
+    <select id="month" onchange="generateCalendar()"></select>
+    <label for="year">Year:</label>
+    <select id="year" onchange="generateCalendar()"></select>
+    
+    <div id="calendar-container">
+        <div id="sidebar">
+            <h3>Birthdays</h3>
+            <ul id="birthdays"></ul>
+            <h3>Anniversaries</h3>
+            <ul id="anniversaries"></ul>
+        </div>
+        <table id="calendar"></table>
+    </div>
+    
+    <script>
+
+
+        async function fetchJSON(filename) {
+            let response = await fetch(filename);
+            return response.json();
+        }
+        
+        async function readCSV(file) {
+            try {
+                const response = await fetch(file);
+                const text = await response.text();
+                console.log(`Raw data from ${file}:`, text);
+                
+                // Special handling for mcheynes.csv to preserve comma-separated format
+                if (file.includes('mcheynes.csv')) {
+                    return text.split('\n')
+                        .map(row => row.trim().split(',').map(cell => cell.trim()))
+                        .filter(row => row.length > 1);
+                }
+                
+                // For prayer_assignments.csv, use newline format
+                const rows = text.split('\n')
+                    .map(row => row.trim())
+                    .filter(row => row.length > 0);
+                
+                console.log(`Parsed data from ${file}:`, rows);
+                return rows.map(row => [row]); // Wrap each row in an array to maintain previous structure
+            } catch (error) {
+                console.error(`Error reading ${file}:`, error);
+                return [];
+            }
+        }
+
+        async function populateEvents() {
+            let month = parseInt(document.getElementById("month").value) + 1;
+            let year = parseInt(document.getElementById("year").value);
+            document.getElementById("birthdays").innerHTML = "";
+            document.getElementById("anniversaries").innerHTML = "";
+            
+            let birthdays = await fetchJSON("birthdays.json");
+            let anniversaries = await fetchJSON("anniversaries.json");
+            
+            for (let [name, date] of Object.entries(birthdays)) {
+                let [m, d] = date.split("/").map(Number);
+                if (m === month) {
+                    let li = document.createElement("li");
+                    li.textContent = `${d} - ${name}`;
+                    document.getElementById("birthdays").appendChild(li);
+                }
+            }
+            
+            for (let [name, date] of Object.entries(anniversaries)) {
+                let [m, d, y] = date.split("/").map(Number);
+                if (m === month) {
+                    let yearsMarried = year - y;
+                    let li = document.createElement("li");
+                    li.textContent = `${d} - ${name} (${yearsMarried} years)`;
+                    document.getElementById("anniversaries").appendChild(li);
+                }
+            }
+        }
+        
+        function populateSelectors() {
+            let monthSelect = document.getElementById("month");
+            let yearSelect = document.getElementById("year");
+            let months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+            
+            months.forEach((month, index) => {
+                let option = new Option(month, index);
+                monthSelect.add(option);
+            });
+            
+            let currentYear = new Date().getFullYear();
+            for (let i = currentYear; i <= currentYear + 3; i++) {
+                let option = new Option(i, i);
+                yearSelect.add(option);
+            }
+        }
+        
+        function distributeAssignments(assignments, daysInMonth) {
+            const minAssignmentsPerDay = Math.floor(assignments.length / daysInMonth);
+            const extraAssignments = assignments.length % daysInMonth;
+            
+            const distributed = [];
+            let assignmentIndex = 0;
+            
+            for (let day = 0; day < daysInMonth; day++) {
+                const dayAssignments = [];
+                for (let i = 0; i < minAssignmentsPerDay; i++) {
+                    dayAssignments.push(assignments[assignmentIndex % assignments.length]);
+                    assignmentIndex++;
+                }
+                if (day >= daysInMonth - extraAssignments) {
+                    dayAssignments.push(assignments[assignmentIndex % assignments.length]);
+                    assignmentIndex++;
+                }
+                distributed.push(dayAssignments);
+            }
+            
+            return distributed;
+        }
+
+
+        function inferColumn(year) {
+            const remainder = year % 3;
+            const column = remainder === 0 ? "A" : remainder === 1 ? "B" : "C";
+            console.log(`Year: ${year}, Remainder: ${remainder}, Column: ${column}`); // Debugging log
+            return column;
+        }
+        
+        async function generateCalendar() {
+            let monthSelect = document.getElementById("month");
+            let yearSelect = document.getElementById("year");
+            let month = parseInt(monthSelect.value);
+            let year = parseInt(yearSelect.value);
+
+            // Update calendar title
+            let monthName = monthSelect.options[monthSelect.selectedIndex].text;
+            document.getElementById("calendar-title").textContent = 
+                `Prayer Calendar - ${monthName} ${year}`;
+
+            // Rest of the previous generateCalendar function remains the same
+            let firstDay = new Date(year, month, 1).getDay();
+            let daysInMonth = new Date(year, month + 1, 0).getDate();
+            
+            const column = inferColumn(year);
+            
+            try {
+                const mcheynesData = await readCSV('mcheynes.csv');
+                const prayerAssignmentsData = await readCSV('prayer_assignments.csv');
+                
+                // Extract prayer assignments 
+                const prayerAssignments = prayerAssignmentsData.map(row => row[0]).filter(name => name);
+                
+                // Distribute assignments across the month
+                const distributedAssignments = distributeAssignments(prayerAssignments, daysInMonth);
+                
+                let table = document.getElementById("calendar");
+                table.innerHTML = "";
+                
+                let headerRow = table.insertRow();
+                ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].forEach(day => {
+                    let th = document.createElement("th");
+                    th.innerText = day;
+                    headerRow.appendChild(th);
+                });
+                
+                let row = table.insertRow();
+                for (let i = 0; i < firstDay; i++) {
+                    row.insertCell();
+                }
+                
+                for (let day = 1; day <= daysInMonth; day++) {
+                    if (row.cells.length === 7) row = table.insertRow();
+                    let cell = row.insertCell();
+                    
+                    // Correct date formatting to match CSV
+                    let dateKey = `${new Date(year, month, day).toLocaleString('en-US', { month: 'short' })} ${day}`;
+                    
+                    // Determine column index based on selected column
+                    let columnIndex = column === "A" ? 1 : column === "B" ? 2 : 3;
+                    
+                    // Find reading for the specific date
+                    let reading = "No Reading";
+                    const matchingRow = mcheynesData.find(row => row[0] === dateKey);
+                    if (matchingRow && matchingRow[columnIndex]) {
+                        reading = matchingRow[columnIndex];
+                    }
+                    
+                    // Get prayer assignments for this day
+                    const dayAssignments = distributedAssignments[day - 1] || [];
+                    const assignmentsText = dayAssignments.length > 0 
+                        ? `PRAYER:<br>${dayAssignments.join('<br>')}` 
+                        : 'PRAYER:';
+                    
+                    cell.innerHTML = `
+                        <div class="day-number">${day}</div>
+                        <div class="day-content">
+                            <strong>${reading}</strong><br>
+                            <em>${assignmentsText}</em>
+                        </div>`;
+                    
+                    // Ensure we move to next row if we've filled 7 cells
+                    if (row.cells.length === 7) row = table.insertRow();
+                }
+                
+                await populateEvents();
+            } catch (error) {
+                console.error('Error generating calendar:', error);
+                alert('Error loading calendar data. Check console for details.');
+            }
+        }
+        
+        
+        window.onload = async function() {
+            populateSelectors();
+            await generateCalendar();
+        };
+    </script>
+</body>
+</html>
